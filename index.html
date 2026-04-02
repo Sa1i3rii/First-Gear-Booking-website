@@ -150,10 +150,22 @@
         </div>
     </div>
 
+    <div id="membersModal" class="modal">
+        <div class="modal-content">
+            <h2 id="membersModalTitle">รายชื่อสมาชิก</h2>
+            <div id="membersModalBody" style="max-height: 320px; overflow:auto; margin-bottom: 20px;">
+                <p style="color:#666;">กำลังดึงรายชื่อสมาชิก...</p>
+            </div>
+            <button onclick="closeMembersModal()" style="width: 100%; padding: 12px; border: none; border-radius: 12px; background: #777; color: white; font-weight: bold; cursor: pointer;">ปิด</button>
+        </div>
+    </div>
+
     <script>
         // เปลี่ยน URL เป็นตัวล่าสุดที่คุณ Deploy ใน Google Apps Script (ตัวที่มี LockService)
         const scriptUrl = 'https://script.google.com/macros/s/AKfycby1vCHXofKAg1r1g7u_tTvnai4LV-kKmB1qlK9opaesiAm_EMWBP7v3hL-YIe2_BCSpDQ/exec'; 
         
+        let rolesDataCache = [];
+
         function getRoleIcon(name) {
             const n = name.toLowerCase();
             if (n.includes('กิจกรรม')) return 'fas fa-star';
@@ -179,10 +191,12 @@
                 document.getElementById('stat-booked').innerText = data.summary.booked;
                 document.getElementById('stat-available').innerText = data.summary.available;
                 
+                rolesDataCache = data.roles || [];
+
                 const deptSelect = document.getElementById('department');
                 deptSelect.innerHTML = '<option value="">เลือกภาควิชา</option>' + data.departments.map(d => `<option value="${d}">${d}</option>`).join('');
 
-                container.innerHTML = data.roles.map(role => {
+                container.innerHTML = (data.roles || []).map(role => {
                     const progress = (role.bookedSlot / role.totalSlot) * 100;
                     return `
                     <div class="role-card">
@@ -199,7 +213,7 @@
                                 <div class="progress-bar"><div class="progress-fill" style="width: ${progress}%;"></div></div>
                             </div>
                             <div class="card-actions">
-                                <button class="btn-view-members"><i class="far fa-eye"></i> ดูรายชื่อสมาชิก</button>
+                                <button class="btn-view-members" onclick="viewMembers('${role.roleName}')"><i class="far fa-eye"></i> ดูรายชื่อสมาชิก</button>
                                 <button class="btn-booking" onclick="openBooking('${role.roleName}', '${role.hasLeader}')" 
                                     ${role.availableSlot <= 0 ? 'disabled' : ''}>
                                     ${role.availableSlot <= 0 ? 'CLOSED' : 'จองตำแหน่งนี้'}
@@ -222,6 +236,58 @@
         }
 
         function closeModal() { document.getElementById('bookingModal').style.display = 'none'; }
+
+        function closeMembersModal() {
+            document.getElementById('membersModal').style.display = 'none';
+            document.getElementById('membersModalBody').innerHTML = '<p style="color:#666;">กำลังดึงรายชื่อสมาชิก...</p>';
+        }
+
+        async function getRoleMembers(roleName) {
+            const roleObj = rolesDataCache.find(r => r.roleName === roleName);
+            if (roleObj && Array.isArray(roleObj.members) && roleObj.members.length > 0) {
+                return roleObj.members;
+            }
+
+            // fallback: try fetch list from API
+            try {
+                const resp = await fetch(scriptUrl + '?action=getMembers&roleName=' + encodeURIComponent(roleName) + '&t=' + Date.now());
+                if (!resp.ok) throw new Error('Network response was not ok');
+                const payload = await resp.json();
+                if (Array.isArray(payload.members)) return payload.members;
+            } catch (_err) {
+                return null;
+            }
+            return null;
+        }
+
+        async function viewMembers(roleName) {
+            document.getElementById('membersModalTitle').innerText = 'รายชื่อสมาชิก: ' + roleName;
+            document.getElementById('membersModal').style.display = 'flex';
+
+            const body = document.getElementById('membersModalBody');
+            body.innerHTML = '<p style="color:#666;">กำลังดึงรายชื่อสมาชิก...</p>';
+
+            const members = await getRoleMembers(roleName);
+            if (!members || members.length === 0) {
+                body.innerHTML = '<p style="color:#d32f2f;">ไม่พบรายชื่อสมาชิกสำหรับตำแหน่งนี้</p>';
+                return;
+            }
+
+            body.innerHTML = '<ul style="list-style:none; padding:0; margin:0;"></ul>';
+            const ul = body.querySelector('ul');
+
+            members.forEach(member => {
+                const line = document.createElement('li');
+                line.style.padding = '10px 0';
+                line.style.borderBottom = '1px solid #eee';
+                let display = '';
+                if (typeof member === 'string') display = member;
+                else if (member.firstname && member.lastname) display = `${member.firstname} ${member.lastname} (${member.studentId || '-'})`;
+                else display = JSON.stringify(member);
+                line.innerText = display;
+                ul.appendChild(line);
+            });
+        }
 
         // --- ส่วนที่ปรับ Logic การบันทึก เพื่อแสดง Success Modal ---
         document.getElementById('bookingForm').onsubmit = async (e) => {
@@ -269,6 +335,6 @@
         };
 
         fetchData();
-    </script>
+    </div>
 </body>
 </html>
